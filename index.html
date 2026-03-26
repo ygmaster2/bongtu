@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>문제지 봉투 표지 양식 출력 도구</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
+
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #f3f4f6;
+            margin: 0;
+            padding: 0;
+        }
+
+        /* 인쇄 설정 - 여백 최소화 */
+        @page {
+            size: A4;
+            margin: 0; /* 브라우저 기본 여백 제거 */
+        }
+
+        @media print {
+            body {
+                background-color: white;
+            }
+            .no-print {
+                display: none !important;
+            }
+            .print-area {
+                box-shadow: none !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 210mm;
+            }
+            .page-half {
+                border-bottom: 1px dashed #000 !important;
+                page-break-inside: avoid;
+                /* 인쇄 시 물리적 여백을 최소화하기 위해 높이 정밀 조정 */
+                height: 148.5mm; 
+                padding: 5mm 8mm !important; /* 내부 여백만 남김 */
+            }
+            /* 마지막 페이지 하단 절취선 숨기기 */
+            .page-half:nth-child(even) {
+                border-bottom: none !important;
+            }
+        }
+
+        /* 화면 표시용 프리뷰 가이드 */
+        .print-area {
+            width: 210mm;
+            background: transparent;
+            margin: 20px auto;
+        }
+
+        .page-half {
+            height: 148.5mm; 
+            width: 100%;
+            padding: 8mm 12mm;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            border-bottom: 1px dashed #ccc;
+            box-sizing: border-box;
+            position: relative;
+            background: white;
+            box-shadow: 0 0 10px rgba(0,0,0,0.05);
+        }
+
+        .content-box {
+            border: 2px solid #000; /* 테두리 시인성 강화 */
+            padding: 0;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header-title {
+            font-size: 2.2rem;
+            font-weight: 700;
+            text-align: center;
+            padding: 15px 0;
+            border-bottom: 2px solid #000;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            flex-grow: 1;
+        }
+
+        th, td {
+            border-bottom: 1px solid #000;
+            border-right: 1px solid #000;
+            padding: 8px 15px;
+            font-size: 1.8rem;
+            text-align: center;
+        }
+        
+        td:last-child {
+            border-right: none;
+        }
+
+        th {
+            width: 25%;
+            font-weight: 700;
+            font-size: 1.8rem;
+            background-color: #fafafa;
+        }
+
+        /* 유의사항 섹션 스타일 */
+        .notice-row th {
+            font-size: 1.2rem;
+            border-bottom: none;
+        }
+
+        .notice-row td {
+            text-align: left;
+            padding: 10px 15px;
+            border-bottom: none;
+        }
+
+        .notice-content {
+            font-size: 0.85rem;
+            line-height: 1.5;
+        }
+
+        .notice-content ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        /* 내어쓰기(Hanging Indent) 적용 */
+        .notice-content li {
+            position: relative;
+            padding-left: 1.2em;
+            text-indent: -1.2em;
+            margin-bottom: 4px;
+        }
+
+        .notice-content li::before {
+            content: "◇ ";
+        }
+
+        .input-row:nth-child(even) {
+            background-color: #fefce8;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <!-- 입력 섹션 (no-print) -->
+    <div class="max-w-5xl mx-auto bg-white p-6 rounded-xl shadow-lg mb-10 no-print border-t-4 border-blue-500">
+        <h1 class="text-xl font-bold mb-4 text-gray-800 border-b pb-2">📂 양곡고등학교 정기시험 기본 정보 및 교실별 인원 입력</h1>
+        
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div class="space-y-1">
+                <label class="text-sm font-bold text-gray-600">학년도</label>
+                <input type="text" id="in-year" class="w-full border rounded p-2 bg-yellow-50" value="2026">
+            </div>
+            <div class="space-y-1">
+                <label class="text-sm font-bold text-gray-600">학기</label>
+                <input type="text" id="in-semester" class="w-full border rounded p-2 bg-yellow-50" value="1">
+            </div>
+            <div class="space-y-1">
+                <label class="text-sm font-bold text-gray-600">차수</label>
+                <input type="text" id="in-turn" class="w-full border rounded p-2 bg-yellow-50" value="1">
+            </div>
+            <div class="space-y-1">
+                <label class="text-sm font-bold text-gray-600">평가 구분</label>
+                <input type="text" id="in-type" class="w-full border rounded p-2 bg-gray-100 font-bold text-gray-500" value="정기시험" readonly>
+            </div>
+            <div class="space-y-1 col-span-2">
+                <label class="text-sm font-bold text-gray-600">과목명</label>
+                <input type="text" id="in-subject" class="w-full border rounded p-2 bg-yellow-50" value="국제 정세와 유가">
+            </div>
+            <div class="space-y-1">
+                <label class="text-sm font-bold text-gray-600">학년</label>
+                <input type="text" id="in-grade" class="w-full border rounded p-2 bg-yellow-50" value="2">
+            </div>
+            <div class="space-y-1">
+                <label class="text-sm font-bold text-gray-600">출제 교사</label>
+                <input type="text" id="in-teachers" class="w-full border rounded p-2 bg-yellow-50" value="홍길동, 길동홍">
+            </div>
+            <div class="space-y-1">
+                <label class="text-sm font-bold text-gray-600">평가 월</label>
+                <input type="text" id="in-m" class="w-full border rounded p-2 bg-yellow-50" value="4">
+            </div>
+            <div class="space-y-1">
+                <label class="text-sm font-bold text-gray-600">평가 일</label>
+                <input type="text" id="in-d" class="w-full border rounded p-2 bg-yellow-50" value="22">
+            </div>
+            <div class="space-y-1">
+                <label class="text-sm font-bold text-gray-600">평가 교시</label>
+                <input type="text" id="in-period" class="w-full border rounded p-2 bg-yellow-50" value="2">
+            </div>
+        </div>
+
+        <div class="bg-gray-50 p-5 rounded-lg border mb-6">
+            <h3 class="font-bold text-blue-700 mb-4 flex items-center gap-2">
+                📍 세부 정보 (평가 교실 및 인원)
+            </h3>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2" id="room-inputs">
+                <!-- 입력 행 생성 -->
+            </div>
+        </div>
+
+        <div class="flex justify-center">
+            <button onclick="window.print()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-12 rounded-xl shadow-lg transition-all active:scale-95 flex items-center gap-3 text-lg">
+                🖨️ 인쇄하기
+            </button>
+        </div>
+    </div>
+
+    <!-- 출력 영역 -->
+    <div class="print-area" id="print-output"></div>
+
+    <script>
+        // 16개의 입력 칸 생성
+        const roomInputsContainer = document.getElementById('room-inputs');
+        for (let i = 1; i <= 16; i++) {
+            const row = document.createElement('div');
+            row.className = 'grid grid-cols-12 gap-2 mb-1 items-center input-row p-1 rounded';
+            row.innerHTML = `
+                <span class="col-span-1 text-xs font-bold text-gray-400 text-center">${i}</span>
+                <input type="text" class="col-span-7 border rounded p-1 text-sm room-name" placeholder="O학년 O반">
+                <input type="text" class="col-span-4 border rounded p-1 text-sm room-count" placeholder="인원">
+            `;
+            roomInputsContainer.appendChild(row);
+        }
+
+        function updateLabels() {
+            const printOutput = document.getElementById('print-output');
+            printOutput.innerHTML = '';
+
+            const baseData = {
+                year: document.getElementById('in-year').value,
+                semester: document.getElementById('in-semester').value,
+                turn: document.getElementById('in-turn').value,
+                type: document.getElementById('in-type').value,
+                subject: document.getElementById('in-subject').value,
+                grade: document.getElementById('in-grade').value,
+                m: document.getElementById('in-m').value,
+                d: document.getElementById('in-d').value,
+                period: document.getElementById('in-period').value,
+                teachers: document.getElementById('in-teachers').value
+            };
+
+            const combinedSubject = `${baseData.grade}학년 '${baseData.subject}' 과목`;
+
+            const roomNames = document.querySelectorAll('.room-name');
+            const roomCounts = document.querySelectorAll('.room-count');
+
+            let labelsGenerated = 0;
+
+            for (let i = 0; i < 16; i++) {
+                const roomName = roomNames[i].value.trim();
+                const roomCount = roomCounts[i].value.trim();
+
+                if (roomName || roomCount) {
+                    // 짝수 번째 라벨(A4 하단 섹션)인 경우 하단 가이드 문구를 숨기기 위한 조건부 렌더링
+                    const isEven = (labelsGenerated + 1) % 2 === 0;
+                    const guideHtml = isEven ? '' : `<div class="absolute bottom-0 left-0 w-full text-center text-[10px] text-gray-400 no-print">-------------------- 절취선 (A4 절반) --------------------</div>`;
+
+                    const labelHtml = `
+                        <div class="page-half">
+                            <div class="content-box">
+                                <div class="header-title">
+                                    ${baseData.year}학년도 ${baseData.semester}학기 ${baseData.turn}차 ${baseData.type}
+                                </div>
+                                <table>
+                                    <tr>
+                                        <th>과목명</th>
+                                        <td>${combinedSubject}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>평가 교실</th>
+                                        <td style="font-weight: bold;">${roomName} (${roomCount}명)</td>
+                                    </tr>
+                                    <tr>
+                                        <th>평가 일시</th>
+                                        <td>${baseData.year}년 ${baseData.m}월 ${baseData.d}일 ${baseData.period}교시</td>
+                                    </tr>
+                                    <tr>
+                                        <th>출제 교사</th>
+                                        <td>${baseData.teachers}</td>
+                                    </tr>
+                                    <tr class="notice-row">
+                                        <th>감독교사<br>유의사항</th>
+                                        <td>
+                                            <div class="notice-content">
+                                                <ul>
+                                                    <li>문제지 봉투 수령 시 봉인 상태를 확인하십시오.</li>
+                                                    <li>문제지 봉투는 반드시 학생들 앞에서 개봉하십시오.</li>
+                                                    <li>학생 답안 회수 시 반드시 결시자 카드(감독교사 작성)를 포함하여 답안 매수가 응시 학생 인원수와 맞는지 확인하십시오.</li>
+                                                    <li>평가 종료 후 여분 문제지와 답안지, 폐답안지도 회수하시어 학생 답안과 함께 평가관리실에 제출해 주십시오.</li>
+                                                </ul>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </div>
+                            ${guideHtml}
+                        </div>
+                    `;
+                    printOutput.insertAdjacentHTML('beforeend', labelHtml);
+                    labelsGenerated++;
+                }
+            }
+
+            if (labelsGenerated === 0) {
+                printOutput.innerHTML = '<div class="p-20 text-center text-gray-300 border-4 border-dashed rounded-xl">세부 정보에 교실 정보를 입력하면 여기에 라벨이 나타납니다.</div>';
+            }
+        }
+
+        document.addEventListener('input', (e) => {
+            if (e.target.tagName === 'INPUT') updateLabels();
+        });
+
+        window.onload = updateLabels;
+    </script>
+</body>
+</html>
