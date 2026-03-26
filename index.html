@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>문제지 봉투 표지 양식 출력 도구</title>
-    <!-- PWA 설정을 위한 Manifest (인라인 처리) -->
-    <link rel="manifest" href="data:application/json;charset=utf-8, { %22name%22: %22시험봉투출력%22, %22short_name%22: %22시험봉투%22, %22start_url%22: %22.%22, %22display%22: %22standalone%22, %22background_color%22: %22%23ffffff%22, %22theme_color%22: %22%232563eb%22, %22icons%22: [ { %22src%22: %22data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgZmlsbD0iIzI1NjNlYiIvPjxwYXRoIGQ9Ik0zNjAgMTYwaC0yMDh2MTkyaDIwOHYtMTkyeiIgZmlsbD0id2hpdGUiLz48L3N2Zz4=%22, %22sizes%22: %22512x512%22, %22type%22: %22image/svg+xml%22 } ] }">
+    <!-- PWA 설정을 위한 Manifest (인라인 처리 및 형식 교정) -->
+    <link rel="manifest" href='data:application/json;charset=utf-8,{"name":"시험봉투출력","short_name":"시험봉투","start_url":"./index.html","display":"standalone","background_color":"#ffffff","theme_color":"#2563eb","icons":[{"src":"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgZmlsbD0iIzI1NjNlYiIvPjxwYXRoIGQ9Ik0zNjAgMTYwaC0yMDh2MTkyaDIwOHYtMTkyeiIgZmlsbD0id2hpdGUiLz48L3N2Zz4=","sizes":"512x512","type":"image/svg+xml"}]}'>
     <meta name="theme-color" content="#2563eb">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -241,6 +241,7 @@
         const installBtn = document.getElementById('pwa-install-btn');
 
         window.addEventListener('beforeinstallprompt', (e) => {
+            // 설치 가능 상태가 되면 브라우저가 이 이벤트를 발생시킵니다.
             e.preventDefault();
             deferredPrompt = e;
             installBtn.style.display = 'flex';
@@ -257,20 +258,24 @@
             }
         });
 
-        // 인라인 서비스 워커 등록
+        // 인라인 서비스 워커 등록 (Blob URL 방식)
         if ('serviceWorker' in navigator) {
-            const swCode = `
-                const CACHE_NAME = 'paper-bag-v1';
-                self.addEventListener('install', (e) => {
-                    e.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(['./'])));
-                });
-                self.addEventListener('fetch', (e) => {
-                    e.respondWith(caches.match(e.request).then((res) => res || fetch(e.request)));
-                });
-            `;
-            const blob = new Blob([swCode], { type: 'application/javascript' });
-            const swUrl = URL.createObjectURL(blob);
-            navigator.serviceWorker.register(swUrl).catch(err => console.log('SW registration failed', err));
+            window.addEventListener('load', () => {
+                const swCode = `
+                    const CACHE_NAME = 'paper-bag-v2';
+                    self.addEventListener('install', (e) => {
+                        self.skipWaiting();
+                    });
+                    self.addEventListener('fetch', (e) => {
+                        e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+                    });
+                `;
+                const blob = new Blob([swCode], { type: 'application/javascript' });
+                const swUrl = URL.createObjectURL(blob);
+                navigator.serviceWorker.register(swUrl)
+                    .then(reg => console.log('SW Registered'))
+                    .catch(err => console.log('SW Failed', err));
+            });
         }
 
         // --- 기존 로직 ---
