@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>문제지 봉투 표지 양식 출력 도구</title>
+    <!-- PWA 설정을 위한 Manifest (인라인 처리) -->
+    <link rel="manifest" href="data:application/json;charset=utf-8, { %22name%22: %22시험봉투출력%22, %22short_name%22: %22시험봉투%22, %22start_url%22: %22.%22, %22display%22: %22standalone%22, %22background_color%22: %22%23ffffff%22, %22theme_color%22: %22%232563eb%22, %22icons%22: [ { %22src%22: %22data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgZmlsbD0iIzI1NjNlYiIvPjxwYXRoIGQ9Ik0zNjAgMTYwaC0yMDh2MTkyaDIwOHYtMTkyeiIgZmlsbD0id2hpdGUiLz48L3N2Zz4=%22, %22sizes%22: %22512x512%22, %22type%22: %22image/svg+xml%22 } ] }">
+    <meta name="theme-color" content="#2563eb">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
@@ -147,9 +150,23 @@
         .input-row:nth-child(even) {
             background-color: #fefce8;
         }
+
+        /* PWA 설치 버튼 전용 스타일 */
+        #pwa-install-btn {
+            display: none;
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 100;
+        }
     </style>
 </head>
 <body class="p-4 md:p-8">
+
+    <!-- PWA 설치 버튼 (오른쪽 상단) -->
+    <button id="pwa-install-btn" class="no-print bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-full shadow-lg transition-all flex items-center gap-2 text-sm">
+        <span>📥 앱 설치하기</span>
+    </button>
 
     <!-- 입력 섹션 (no-print) -->
     <div class="max-w-5xl mx-auto bg-white p-6 rounded-xl shadow-lg mb-10 no-print border-t-4 border-blue-500">
@@ -219,7 +236,44 @@
     <div class="print-area" id="print-output"></div>
 
     <script>
-        // 16개의 입력 칸 생성
+        // --- PWA Service Worker 및 설치 로직 ---
+        let deferredPrompt;
+        const installBtn = document.getElementById('pwa-install-btn');
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            installBtn.style.display = 'flex';
+        });
+
+        installBtn.addEventListener('click', async () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                if (outcome === 'accepted') {
+                    installBtn.style.display = 'none';
+                }
+                deferredPrompt = null;
+            }
+        });
+
+        // 인라인 서비스 워커 등록
+        if ('serviceWorker' in navigator) {
+            const swCode = `
+                const CACHE_NAME = 'paper-bag-v1';
+                self.addEventListener('install', (e) => {
+                    e.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(['./'])));
+                });
+                self.addEventListener('fetch', (e) => {
+                    e.respondWith(caches.match(e.request).then((res) => res || fetch(e.request)));
+                });
+            `;
+            const blob = new Blob([swCode], { type: 'application/javascript' });
+            const swUrl = URL.createObjectURL(blob);
+            navigator.serviceWorker.register(swUrl).catch(err => console.log('SW registration failed', err));
+        }
+
+        // --- 기존 로직 ---
         const roomInputsContainer = document.getElementById('room-inputs');
         for (let i = 1; i <= 16; i++) {
             const row = document.createElement('div');
@@ -261,7 +315,6 @@
                 const roomCount = roomCounts[i].value.trim();
 
                 if (roomName || roomCount) {
-                    // 짝수 번째 라벨(A4 하단 섹션)인 경우 하단 가이드 문구를 숨기기 위한 조건부 렌더링
                     const isEven = (labelsGenerated + 1) % 2 === 0;
                     const guideHtml = isEven ? '' : `<div class="absolute bottom-0 left-0 w-full text-center text-[10px] text-gray-400 no-print">-------------------- 절취선 (A4 절반) --------------------</div>`;
 
