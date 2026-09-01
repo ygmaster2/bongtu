@@ -47,6 +47,13 @@
             /* 마지막 페이지 하단 절취선 숨기기 */
             .page-half:nth-child(even) {
                 border-bottom: none !important;
+                page-break-after: always;   /* 이 줄 추가 */
+                break-after: page;          /* 최신 브라우저용, 같이 넣어주면 안전 */
+            }
+            /* 홀수(위쪽 절반)는 짝과 분리되지 않도록 명시 */
+            .page-half:nth-child(odd) {
+                page-break-after: avoid;
+                break-after: avoid;
             }
         }
 
