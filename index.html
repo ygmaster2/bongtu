@@ -18,7 +18,6 @@
             padding: 0;
         }
 
-        /* 인쇄 설정 - 여백 최소화 */
         @page {
             size: A4;
             margin: 0; /* 브라우저 기본 여백 제거 */
@@ -35,25 +34,32 @@
                 box-shadow: none !important;
                 margin: 0 !important;
                 padding: 0 !important;
+            }
+
+            /* [수정된 핵심] 각 A4 한 장을 독립된 컨테이너로 만든다.
+               이전 페이지까지 쌓인 높이의 누적값에 의존하지 않고,
+               "이 페이지 자체 높이의 정확히 50%"만 계산하면 되므로
+               페이지가 늘어나도 절취선 위치가 절대 어긋나지 않는다. */
+            .print-page {
                 width: 210mm;
-            }
-            .page-half {
-                border-bottom: 1px dashed #000 !important;
+                height: 297mm;
+                box-sizing: border-box;
+                page-break-after: always;
+                break-after: page;
                 page-break-inside: avoid;
-                /* 인쇄 시 물리적 여백을 최소화하기 위해 높이 정밀 조정 */
-                height: 148.5mm; 
-                padding: 5mm 8mm !important; /* 내부 여백만 남김 */
             }
-            /* 마지막 페이지 하단 절취선 숨기기 */
-            .page-half:nth-child(even) {
-                border-bottom: none !important;
-                page-break-after: always;   /* 이 줄 추가 */
-                break-after: page;          /* 최신 브라우저용, 같이 넣어주면 안전 */
+            .print-page:last-child {
+                page-break-after: auto;
+                break-after: auto;
             }
-            /* 홀수(위쪽 절반)는 짝과 분리되지 않도록 명시 */
-            .page-half:nth-child(odd) {
-                page-break-after: avoid;
-                break-after: avoid;
+
+            .page-half {
+                height: 50%; /* 148.5mm 고정값 대신 컨테이너 높이의 정확히 절반 */
+                border-bottom: 1px dashed #000 !important;
+                padding: 5mm 8mm !important;
+            }
+            .page-half:last-child {
+                border-bottom: none !important; /* 페이지의 두번째 칸(또는 홀수로 남는 마지막 칸)엔 선 없음 */
             }
         }
 
@@ -64,8 +70,17 @@
             margin: 20px auto;
         }
 
+        .print-page {
+            width: 210mm;
+            height: 297mm;
+            box-sizing: border-box;
+            background: white;
+            margin-bottom: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.05);
+        }
+
         .page-half {
-            height: 148.5mm; 
+            height: 50%;
             width: 100%;
             padding: 8mm 12mm;
             display: flex;
@@ -74,8 +89,6 @@
             border-bottom: 1px dashed #ccc;
             box-sizing: border-box;
             position: relative;
-            background: white;
-            box-shadow: 0 0 10px rgba(0,0,0,0.05);
         }
 
         .content-box {
@@ -248,7 +261,6 @@
         const installBtn = document.getElementById('pwa-install-btn');
 
         window.addEventListener('beforeinstallprompt', (e) => {
-            // 설치 가능 상태가 되면 브라우저가 이 이벤트를 발생시킵니다.
             e.preventDefault();
             deferredPrompt = e;
             installBtn.style.display = 'flex';
@@ -265,7 +277,6 @@
             }
         });
 
-        // 인라인 서비스 워커 등록 (Blob URL 방식)
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 const swCode = `
@@ -298,6 +309,50 @@
             roomInputsContainer.appendChild(row);
         }
 
+        // 라벨 하나(한 칸)의 HTML을 만드는 함수로 분리
+        function buildHalfHtml(baseData, combinedSubject, roomName, roomCount) {
+            return `
+                <div class="page-half">
+                    <div class="content-box">
+                        <div class="header-title">
+                            ${baseData.year}학년도 ${baseData.semester}학기 ${baseData.turn}차 ${baseData.type}
+                        </div>
+                        <table>
+                            <tr>
+                                <th>과목명</th>
+                                <td>${combinedSubject}</td>
+                            </tr>
+                            <tr>
+                                <th>평가 교실</th>
+                                <td style="font-weight: bold;">${roomName} (${roomCount}명)</td>
+                            </tr>
+                            <tr>
+                                <th>평가 일시</th>
+                                <td>${baseData.year}년 ${baseData.m}월 ${baseData.d}일 ${baseData.period}교시</td>
+                            </tr>
+                            <tr>
+                                <th>출제 교사</th>
+                                <td>${baseData.teachers}</td>
+                            </tr>
+                            <tr class="notice-row">
+                                <th>감독교사<br>유의사항</th>
+                                <td>
+                                    <div class="notice-content">
+                                        <ul>
+                                            <li>문제지 봉투 수령 시 봉인 상태를 확인하십시오.</li>
+                                            <li>문제지 봉투는 반드시 학생들 앞에서 개봉하십시오.</li>
+                                            <li>학생 답안 회수 시 반드시 결시자 카드(감독교사 작성)를 포함하여 답안 매수가 응시 학생 인원수와 맞는지 확인하십시오.</li>
+                                            <li>평가 종료 후 여분 문제지와 답안지, 폐답안지도 회수하시어 학생 답안과 함께 평가관리실에 제출해 주십시오.</li>
+                                        </ul>
+                                    </div>
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
         function updateLabels() {
             const printOutput = document.getElementById('print-output');
             printOutput.innerHTML = '';
@@ -320,64 +375,33 @@
             const roomNames = document.querySelectorAll('.room-name');
             const roomCounts = document.querySelectorAll('.room-count');
 
-            let labelsGenerated = 0;
-
+            // 1) 입력된 교실 정보만 모은다
+            const rooms = [];
             for (let i = 0; i < 16; i++) {
                 const roomName = roomNames[i].value.trim();
                 const roomCount = roomCounts[i].value.trim();
-
                 if (roomName || roomCount) {
-                    const isEven = (labelsGenerated + 1) % 2 === 0;
-                    const guideHtml = isEven ? '' : `<div class="absolute bottom-0 left-0 w-full text-center text-[10px] text-gray-400 no-print">-------------------- 절취선 (A4 절반) --------------------</div>`;
-
-                    const labelHtml = `
-                        <div class="page-half">
-                            <div class="content-box">
-                                <div class="header-title">
-                                    ${baseData.year}학년도 ${baseData.semester}학기 ${baseData.turn}차 ${baseData.type}
-                                </div>
-                                <table>
-                                    <tr>
-                                        <th>과목명</th>
-                                        <td>${combinedSubject}</td>
-                                    </tr>
-                                    <tr>
-                                        <th>평가 교실</th>
-                                        <td style="font-weight: bold;">${roomName} (${roomCount}명)</td>
-                                    </tr>
-                                    <tr>
-                                        <th>평가 일시</th>
-                                        <td>${baseData.year}년 ${baseData.m}월 ${baseData.d}일 ${baseData.period}교시</td>
-                                    </tr>
-                                    <tr>
-                                        <th>출제 교사</th>
-                                        <td>${baseData.teachers}</td>
-                                    </tr>
-                                    <tr class="notice-row">
-                                        <th>감독교사<br>유의사항</th>
-                                        <td>
-                                            <div class="notice-content">
-                                                <ul>
-                                                    <li>문제지 봉투 수령 시 봉인 상태를 확인하십시오.</li>
-                                                    <li>문제지 봉투는 반드시 학생들 앞에서 개봉하십시오.</li>
-                                                    <li>학생 답안 회수 시 반드시 결시자 카드(감독교사 작성)를 포함하여 답안 매수가 응시 학생 인원수와 맞는지 확인하십시오.</li>
-                                                    <li>평가 종료 후 여분 문제지와 답안지, 폐답안지도 회수하시어 학생 답안과 함께 평가관리실에 제출해 주십시오.</li>
-                                                </ul>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                </table>
-                            </div>
-                            ${guideHtml}
-                        </div>
-                    `;
-                    printOutput.insertAdjacentHTML('beforeend', labelHtml);
-                    labelsGenerated++;
+                    rooms.push({ name: roomName, count: roomCount });
                 }
             }
 
-            if (labelsGenerated === 0) {
+            if (rooms.length === 0) {
                 printOutput.innerHTML = '<div class="p-20 text-center text-gray-300 border-4 border-dashed rounded-xl">세부 정보에 교실 정보를 입력하면 여기에 라벨이 나타납니다.</div>';
+                return;
+            }
+
+            // 2) [핵심] 두 개씩 짝지어 .print-page(=A4 한 장) 컨테이너로 감싼다.
+            //    각 페이지는 서로 독립적이라 이전 페이지의 누적 높이와 무관하게
+            //    매번 "자기 자신의 정확히 절반" 위치에 절취선이 생긴다.
+            for (let i = 0; i < rooms.length; i += 2) {
+                const pair = rooms.slice(i, i + 2);
+                const halvesHtml = pair
+                    .map(r => buildHalfHtml(baseData, combinedSubject, r.name, r.count))
+                    .join('');
+                printOutput.insertAdjacentHTML(
+                    'beforeend',
+                    `<div class="print-page">${halvesHtml}</div>`
+                );
             }
         }
 
