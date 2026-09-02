@@ -53,6 +53,15 @@
                 break-after: auto;
             }
 
+            /* 프린터 급지 편차 보정: 레이아웃(페이지 분할 계산)에는
+               영향을 주지 않고 시각적으로만 내용을 위/아래로 미세 이동시킨다. */
+            .print-page:first-of-type {
+                transform: translateY(var(--page1-offset, 0mm));
+            }
+            .print-page:not(:first-of-type) {
+                transform: translateY(var(--restpages-offset, 0mm));
+            }
+
             .page-half {
                 height: 50%; /* 148.5mm 고정값 대신 컨테이너 높이의 정확히 절반 */
                 border-bottom: 1px dashed #000 !important;
@@ -191,8 +200,23 @@
     <!-- 입력 섹션 (no-print) -->
     <div class="max-w-5xl mx-auto bg-white p-6 rounded-xl shadow-lg mb-10 no-print border-t-4 border-blue-500">
         <h1 class="text-xl font-bold mb-4 text-gray-800 border-b pb-2">📂 양곡고등학교 정기시험 기본 정보 및 교실별 인원 입력</h1>
-        
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+
+        <!-- 입력 방식 선택 탭 -->
+        <div class="flex gap-1 mb-4 border-b">
+            <button type="button" id="mode-direct-btn" class="px-4 py-2 font-bold text-sm border-b-2 border-blue-600 text-blue-600">✏️ 직접 입력</button>
+            <button type="button" id="mode-import-btn" class="px-4 py-2 font-bold text-sm border-b-2 border-transparent text-gray-400">🔍 과목명으로 가져오기</button>
+        </div>
+
+        <!-- 가져오기 패널: 기본정보(학년도~과목명)만 CSV에서 검색해 채운다. 출제교사/세부정보는 대상 아님 -->
+        <div id="import-panel" class="hidden bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 relative">
+            <label class="text-sm font-bold text-gray-700">과목명 검색</label>
+            <input type="text" id="in-subject-search" autocomplete="off" class="w-full border rounded p-2 mt-1" placeholder="과목명 일부를 입력하세요 (예: 국제 정세)">
+            <div id="subject-search-results" class="absolute left-4 right-4 z-10 bg-white border rounded-b-lg shadow-lg max-h-60 overflow-y-auto" style="display:none;"></div>
+            <p id="import-status" class="text-xs text-gray-500 mt-2">시험 정보 파일을 불러오는 중입니다...</p>
+            <div id="import-preview" class="mt-3 bg-white border border-blue-300 rounded p-3 text-sm" style="display:none;"></div>
+        </div>
+
+        <div id="direct-input-grid" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             <div class="space-y-1">
                 <label class="text-sm font-bold text-gray-600">학년도</label>
                 <input type="text" id="in-year" class="w-full border rounded p-2 bg-yellow-50" value="2026">
@@ -218,10 +242,6 @@
                 <input type="text" id="in-grade" class="w-full border rounded p-2 bg-yellow-50" value="2">
             </div>
             <div class="space-y-1">
-                <label class="text-sm font-bold text-gray-600">출제 교사</label>
-                <input type="text" id="in-teachers" class="w-full border rounded p-2 bg-yellow-50" value="홍길동, 길동홍">
-            </div>
-            <div class="space-y-1">
                 <label class="text-sm font-bold text-gray-600">평가 월</label>
                 <input type="text" id="in-m" class="w-full border rounded p-2 bg-yellow-50" value="4">
             </div>
@@ -235,6 +255,33 @@
             </div>
         </div>
 
+        <!-- 출제 교사는 데이터 파일로 제공받지 못하므로 입력 방식과 무관하게 항상 직접 입력 -->
+        <div class="space-y-1 mb-8">
+            <label class="text-sm font-bold text-gray-600">출제 교사 (직접 입력)</label>
+            <input type="text" id="in-teachers" class="w-full border rounded p-2 bg-yellow-50" value="홍길동, 길동홍">
+        </div>
+
+        <details class="bg-amber-50 p-5 rounded-lg border border-amber-300 mb-6">
+            <summary class="font-bold text-amber-800 flex items-center gap-2 cursor-pointer select-none">
+                🖨️ 프린터 페이지별 여백 보정
+            </summary>
+            <p class="text-xs text-amber-700 mb-3 mt-3 leading-relaxed">
+                일부 프린터/복합기는 첫 장만 급지 방식이 달라 상단 여백이 뒷장과 다르게 인쇄됩니다.<br>
+                자로 측정한 뒤, <b>기준으로 삼고 싶은 페이지 쪽은 0으로 두고</b> 다른 쪽만 값을 넣어 맞추세요.<br>
+                예) 1페이지가 8mm, 2페이지부터 4mm인데 <b>8mm를 기준</b>으로 맞추고 싶다면<br>
+                → "1페이지 보정값"은 0, <b>"2페이지 이후 보정값"에 +4</b> 입력 (2페이지부터 내용을 4mm 아래로 내려서 여백을 8mm로 맞춤)
+            </p>
+            <div class="flex items-center gap-2 mb-2">
+                <label class="text-sm font-bold text-gray-700 w-32">1페이지 보정값</label>
+                <input type="number" id="in-page1-offset" step="0.5" class="w-24 border rounded p-2 bg-white" value="0">
+                <span class="text-sm text-gray-600">mm</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <label class="text-sm font-bold text-gray-700 w-32">2페이지 이후 보정값</label>
+                <input type="number" id="in-restpages-offset" step="0.5" class="w-24 border rounded p-2 bg-white" value="4">
+                <span class="text-sm text-gray-600">mm</span>
+            </div>
+        </details>
         <div class="bg-gray-50 p-5 rounded-lg border mb-6">
             <h3 class="font-bold text-blue-700 mb-4 flex items-center gap-2">
                 📍 세부 정보 (평가 교실 및 인원)
@@ -256,6 +303,145 @@
     <div class="print-area" id="print-output"></div>
 
     <script>
+        // --- 시험 기본정보 CSV 가져오기 기능 ---
+        // CSV 헤더 순서: 학년도,학기,차수,평가월,평가일,학년,평가교시,과목명
+        // (출제교사는 데이터로 제공되지 않으므로 CSV에 포함하지 않음 — 항상 직접 입력)
+        let examData = null;
+
+        function splitCSVLine(line) {
+            const result = [];
+            let cur = '';
+            let inQuotes = false;
+            for (let i = 0; i < line.length; i++) {
+                const c = line[i];
+                if (inQuotes) {
+                    if (c === '"') {
+                        if (line[i + 1] === '"') { cur += '"'; i++; }
+                        else inQuotes = false;
+                    } else {
+                        cur += c;
+                    }
+                } else {
+                    if (c === '"') inQuotes = true;
+                    else if (c === ',') { result.push(cur); cur = ''; }
+                    else cur += c;
+                }
+            }
+            result.push(cur);
+            return result;
+        }
+
+        function parseCSV(text) {
+            const lines = text.split(/\r\n|\n/).filter(l => l.trim() !== '');
+            if (lines.length === 0) return [];
+            const headers = splitCSVLine(lines[0]).map(h => h.trim());
+            const rows = [];
+            for (let i = 1; i < lines.length; i++) {
+                const cols = splitCSVLine(lines[i]);
+                const obj = {};
+                headers.forEach((h, idx) => { obj[h] = (cols[idx] || '').trim(); });
+                rows.push(obj);
+            }
+            return rows;
+        }
+
+        async function loadExamData() {
+            const statusEl = document.getElementById('import-status');
+            try {
+                const res = await fetch('exam_data.csv');
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const text = await res.text();
+                examData = parseCSV(text);
+                statusEl.textContent = `총 ${examData.length}건의 시험 정보를 불러왔습니다. 과목명을 입력해 검색하세요.`;
+            } catch (err) {
+                examData = [];
+                statusEl.textContent = '⚠️ exam_data.csv 파일을 찾지 못했습니다. index.html과 같은 폴더에 있는지, 웹서버(GitHub Pages 등)를 통해 열었는지 확인해주세요. (파일을 그냥 더블클릭해서 열면 보안 정책상 불러올 수 없습니다.)';
+            }
+        }
+
+        function handleSubjectSearch(e) {
+            const q = e.target.value.trim();
+            const box = document.getElementById('subject-search-results');
+            if (!q || !examData) {
+                box.style.display = 'none';
+                box.innerHTML = '';
+                return;
+            }
+            const matches = examData.filter(r => (r['과목명'] || '').includes(q)).slice(0, 8);
+            if (matches.length === 0) {
+                box.innerHTML = '<div class="p-2 text-sm text-gray-400">일치하는 과목이 없습니다.</div>';
+                box.style.display = 'block';
+                return;
+            }
+            box.innerHTML = matches.map((r, idx) => `
+                <div class="p-2 hover:bg-blue-50 cursor-pointer text-sm border-b" data-idx="${idx}">
+                    <div class="font-bold">${r['과목명']}</div>
+                    <div class="text-xs text-gray-500">${r['학년도']}학년도 ${r['학기']}학기 ${r['차수']}차 · ${r['학년']}학년 · ${r['평가월']}월 ${r['평가일']}일 ${r['평가교시']}교시</div>
+                </div>
+            `).join('');
+            box.style.display = 'block';
+            box.querySelectorAll('[data-idx]').forEach(el => {
+                el.addEventListener('click', () => selectExamRow(matches[parseInt(el.dataset.idx, 10)]));
+            });
+        }
+
+        function selectExamRow(row) {
+            document.getElementById('in-year').value = row['학년도'] || '';
+            document.getElementById('in-semester').value = row['학기'] || '';
+            document.getElementById('in-turn').value = row['차수'] || '';
+            document.getElementById('in-m').value = row['평가월'] || '';
+            document.getElementById('in-d').value = row['평가일'] || '';
+            document.getElementById('in-grade').value = row['학년'] || '';
+            document.getElementById('in-period').value = row['평가교시'] || '';
+            document.getElementById('in-subject').value = row['과목명'] || '';
+
+            document.getElementById('in-subject-search').value = row['과목명'] || '';
+            document.getElementById('subject-search-results').style.display = 'none';
+
+            const preview = document.getElementById('import-preview');
+            preview.style.display = 'block';
+            preview.innerHTML = `
+                <div class="font-bold text-blue-700 mb-1">✅ 기본정보를 불러왔습니다</div>
+                <div>${row['학년도']}학년도 ${row['학기']}학기 ${row['차수']}차 · ${row['과목명']} · ${row['학년']}학년 · ${row['평가월']}월 ${row['평가일']}일 ${row['평가교시']}교시</div>
+                <div class="text-xs text-gray-500 mt-1">출제 교사는 아래 칸에 직접 입력해주세요. 값을 고치고 싶으면 "✏️ 직접 입력" 탭을 눌러 수정할 수 있습니다.</div>
+            `;
+
+            updateLabels();
+        }
+
+        function setInputMode(mode) {
+            const directBtn = document.getElementById('mode-direct-btn');
+            const importBtn = document.getElementById('mode-import-btn');
+            const directGrid = document.getElementById('direct-input-grid');
+            const importPanel = document.getElementById('import-panel');
+            const activeCls = ['border-blue-600', 'text-blue-600'];
+            const inactiveCls = ['border-transparent', 'text-gray-400'];
+
+            // Tailwind의 'hidden' 클래스는 같은 요소의 'grid' 클래스와 우선순위가 겹쳐
+            // 먹히지 않을 수 있으므로, 인라인 style.display로 명확하게 제어한다.
+            if (mode === 'import') {
+                directGrid.style.display = 'none';
+                importPanel.style.display = 'block';
+                importBtn.classList.add(...activeCls);
+                importBtn.classList.remove(...inactiveCls);
+                directBtn.classList.add(...inactiveCls);
+                directBtn.classList.remove(...activeCls);
+                if (examData === null) loadExamData();
+            } else {
+                directGrid.style.display = 'grid';
+                importPanel.style.display = 'none';
+                directBtn.classList.add(...activeCls);
+                directBtn.classList.remove(...inactiveCls);
+                importBtn.classList.add(...inactiveCls);
+                importBtn.classList.remove(...activeCls);
+            }
+        }
+
+        document.getElementById('mode-direct-btn').addEventListener('click', () => setInputMode('direct'));
+        document.getElementById('mode-import-btn').addEventListener('click', () => setInputMode('import'));
+        document.getElementById('in-subject-search').addEventListener('input', handleSubjectSearch);
+        setInputMode('direct'); // 초기 상태를 인라인 스타일로 명확히 고정
+
         // --- PWA Service Worker 및 설치 로직 ---
         let deferredPrompt;
         const installBtn = document.getElementById('pwa-install-btn');
@@ -405,10 +591,26 @@
             }
         }
 
+        // 페이지별 보정값을 CSS 변수로 반영 (레이아웃엔 영향 없이 시각적 이동만 적용)
+        function applyPageOffsets() {
+            const p1Val = document.getElementById('in-page1-offset').value.trim();
+            const restVal = document.getElementById('in-restpages-offset').value.trim();
+            const p1mm = p1Val === '' ? 0 : parseFloat(p1Val);
+            const restMm = restVal === '' ? 0 : parseFloat(restVal);
+            document.documentElement.style.setProperty('--page1-offset', `${isNaN(p1mm) ? 0 : p1mm}mm`);
+            document.documentElement.style.setProperty('--restpages-offset', `${isNaN(restMm) ? 0 : restMm}mm`);
+        }
+
         document.addEventListener('input', (e) => {
+            if (e.target.id === 'in-page1-offset' || e.target.id === 'in-restpages-offset') {
+                applyPageOffsets();
+                return;
+            }
+            if (e.target.id === 'in-subject-search') return; // 검색창 자체는 별도 리스너가 처리
             if (e.target.tagName === 'INPUT') updateLabels();
         });
 
+        applyPageOffsets();
         window.onload = updateLabels;
     </script>
 </body>
