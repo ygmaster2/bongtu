@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>문제지 봉투 표지 양식 출력 도구</title>
+    <!-- PWA 설정을 위한 Manifest (인라인 처리 및 형식 교정) -->
+    <link rel="manifest" href='data:application/json;charset=utf-8,{"name":"시험봉투출력","short_name":"시험봉투","start_url":"./index.html","display":"standalone","background_color":"#ffffff","theme_color":"#2563eb","icons":[{"src":"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgZmlsbD0iIzI1NjNlYiIvPjxwYXRoIGQ9Ik0zNjAgMTYwaC0yMDh2MTkyaDIwOHYtMTkyeiIgZmlsbD0id2hpdGUiLz48L3N2Zz4=","sizes":"512x512","type":"image/svg+xml"}]}'>
+    <meta name="theme-color" content="#2563eb">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 응시현황표(.xlsx) 압축 해제용. 파일은 브라우저 안에서만 읽히고 어디로도 전송되지 않습니다. -->
+    <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
+
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #f3f4f6;
+            margin: 0;
+            padding: 0;
+        }
+
+        @page {
+            size: A4;
+            margin: 0; /* 브라우저 기본 여백 제거 */
+        }
+
+        @media print {
+            body {
+                background-color: white;
+            }
+            .no-print {
+                display: none !important;
+            }
+            .print-area {
+                box-shadow: none !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+
+            /* [수정된 핵심] 각 A4 한 장을 독립된 컨테이너로 만든다.
+               이전 페이지까지 쌓인 높이의 누적값에 의존하지 않고,
+               "이 페이지 자체 높이의 정확히 50%"만 계산하면 되므로
+               페이지가 늘어나도 절취선 위치가 절대 어긋나지 않는다. */
+            .print-page {
+                width: 210mm;
+                height: 297mm !important;
+                /* 아래쪽 화면용 .print-page 규칙(margin-bottom:10px)이 인쇄에도 적용되어
+                   장마다 10px씩 밀리다가 맨 끝에 빈 종이가 한 장 더 나오던 문제 수정 */
+                margin: 0 !important;
+                box-shadow: none !important;
+                overflow: hidden;
+                box-sizing: border-box;
+                page-break-after: always;
+                break-after: page;
+                page-break-inside: avoid;
+            }
+            .print-page:last-child {
+                page-break-after: auto;
+                break-after: auto;
+            }
+
+            /* 프린터 급지 편차 보정: 레이아웃(페이지 분할 계산)에는
+               영향을 주지 않고 시각적으로만 내용을 위/아래로 미세 이동시킨다. */
+            /* 종이(페이지 틀)는 그대로 두고 안쪽 내용만 이동 → 마지막 장이 밀려 빈 종이가 생기지 않음 */
+            .print-page:first-of-type > .page-half {
+                transform: translateY(var(--page1-offset, 0mm));
+            }
+            .print-page:not(:first-of-type) > .page-half {
+                transform: translateY(var(--restpages-offset, 0mm));
+            }
+
+            .page-half {
+                height: 50%; /* 148.5mm 고정값 대신 컨테이너 높이의 정확히 절반 */
+                border-bottom: 1px dashed #000 !important;
+                padding: 5mm 8mm !important;
+            }
+            .page-half:last-child {
+                border-bottom: none !important; /* 페이지의 두번째 칸(또는 홀수로 남는 마지막 칸)엔 선 없음 */
+            }
+        }
+
+        /* 화면 표시용 프리뷰 가이드 */
+        .print-area {
+            width: 210mm;
+            background: transparent;
+            margin: 20px auto;
+        }
+
+        .print-page {
+            width: 210mm;
+            height: 297mm;
+            box-sizing: border-box;
+            background: white;
+            margin-bottom: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.05);
+        }
+
+        .page-half {
+            height: 50%;
+            width: 100%;
+            padding: 8mm 12mm;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            border-bottom: 1px dashed #ccc;
+            box-sizing: border-box;
+            position: relative;
+        }
+
+        .content-box {
+            border: 2px solid #000; /* 테두리 시인성 강화 */
+            padding: 0;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header-title {
+            font-size: 2.2rem;
+            font-weight: 700;
+            text-align: center;
+            padding: 15px 0;
+            border-bottom: 2px solid #000;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            flex-grow: 1;
+        }
+
+        th, td {
+            border-bottom: 1px solid #000;
+            border-right: 1px solid #000;
+            padding: 8px 15px;
+            font-size: 1.8rem;
+            text-align: center;
+        }
+        
+        td:last-child {
+            border-right: none;
+        }
+
+        th {
+            width: 25%;
+            font-weight: 700;
+            font-size: 1.8rem;
+            background-color: #fafafa;
+        }
+
+        /* 유의사항 섹션 스타일 */
+        .notice-row th {
+            font-size: 1.2rem;
+            border-bottom: none;
+        }
+
+        .notice-row td {
+            text-align: left;
+            padding: 10px 15px;
+            border-bottom: none;
+        }
+
+        .notice-content {
+            font-size: 0.85rem;
+            line-height: 1.5;
+        }
+
+        .notice-content ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        /* 내어쓰기(Hanging Indent) 적용 */
+        .notice-content li {
+            position: relative;
+            padding-left: 1.2em;
+            text-indent: -1.2em;
+            margin-bottom: 4px;
+        }
+
+        .notice-content li::before {
+            content: "◇ ";
+        }
+
+        .input-row:nth-child(even) {
+            background-color: #fefce8;
+        }
+
+        /* PWA 설치 버튼 전용 스타일 */
+        #pwa-install-btn {
+            display: none;
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <!-- PWA 설치 버튼 (오른쪽 상단) -->
+    <button id="pwa-install-btn" class="no-print bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-full shadow-lg transition-all flex items-center gap-2 text-sm">
+        <span>📥 앱 설치하기</span>
+    </button>
+
+    <!-- 입력 섹션 (no-print) -->
+    <div class="max-w-5xl mx-auto bg-white p-6 rounded-xl shadow-lg mb-10 no-print border-t-4 border-blue-500">
+        <h1 class="text-xl font-bold mb-4 text-gray-800 border-b pb-2">📂 양곡고등학교 정기시험 기본 정보 및 교실별 인원 입력</h1>
+
+        <!-- 입력 방식 선택 탭 -->
+        <div class="flex gap-1 mb-4 border-b">
+            <button type="button" id="mode-direct-btn" class="px-4 py-2 font-bold text-sm border-b-2 border-blue-600 text-blue-600">✏️ 직접 입력</button>
+            <button type="button" id="mode-status-btn" class="px-4 py-2 font-bold text-sm border-b-2 border-transparent text-gray-400">📊 응시현황표로 가져오기</button>
+        </div>
+
+        <!-- 응시현황표 패널: 과목을 클릭하면 기본정보 + 반별 인원(세부 정보)까지 채운다. 출제교사는 직접 입력 -->
+        <div id="status-panel" class="bg-green-50 border border-green-200 rounded-lg p-4 mb-6" style="display:none;">
+            <label id="status-drop" class="block border-2 border-dashed border-green-300 bg-white rounded-lg p-4 text-center cursor-pointer">
+                <input type="file" id="status-file" accept=".xlsx" multiple class="hidden">
+                <div class="font-bold text-green-700">📎 과목별 응시 현황표(.xlsx)를 끌어다 놓거나 클릭해서 선택하세요</div>
+                <div class="text-xs text-gray-500 mt-1">1·2·3학년 파일을 여러 개 한꺼번에 올려도 됩니다. 시트 이름(예: 3-1)으로 학년·반을 알아냅니다.</div>
+                <div class="text-xs text-gray-500">파일은 이 브라우저 안에서만 읽히며 어디에도 업로드되지 않습니다. 학생 이름은 쓰지 않고 반별 인원수만 기억합니다.</div>
+            </label>
+            <div id="status-msg" class="text-sm mt-3"></div>
+            <div id="status-list-wrap" class="mt-3" style="display:none;">
+                <div class="flex flex-wrap items-center gap-3 mb-3">
+                    <input type="text" id="status-filter" autocomplete="off" class="flex-1 min-w-[10rem] border rounded p-2 text-sm" placeholder="과목명으로 찾기 (예: 경제)">
+                    <label class="text-sm text-gray-700 flex items-center gap-1 select-none">
+                        <input type="checkbox" id="status-skip-zero" checked> 응시자 0명인 반은 빼기
+                    </label>
+                    <button type="button" id="status-clear" class="text-xs text-gray-400 hover:text-red-500 underline">불러온 자료 지우기</button>
+                </div>
+                <div id="status-list" class="space-y-3"></div>
+            </div>
+            <div id="status-preview" class="mt-3 bg-white border border-green-300 rounded p-3 text-sm" style="display:none;"></div>
+        </div>
+
+        <div id="direct-input-grid" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div class="space-y-1">
+                <label class="text-sm font-bold text-gray-600">학년도</label>
+                <input type="text" id="in-year" class="w-full border rounded p-2 bg-yellow-50" value="2026">
+            </div>
+            <div class="space-y-1">
+                <label class="text-sm font-bold text-gray-600">학기</label>
+                <input type="text" id="in-semester" class="w-full border rounded p-2 bg-yellow-50" value="1">
+            </div>
+            <div class="space-y-1">
+                <label class="text-sm font-bold text-gray-600">차수</label>
+                <input type="text" id="in-turn" class="w-full border rounded p-2 bg-yellow-50" value="1">
+            </div>
+            <div class="space-y-1">
+                <label class="text-sm font-bold text-gray-600">평가 구분</label>
+                <input type="text" id="in-type" class="w-full border rounded p-2 bg-gray-100 font-bold text-gray-500" value="정기시험" readonly>
+            </div>
+            <div class="space-y-1 col-span-2">
+                <label class="text-sm font-bold text-gray-600">과목명</label>
+                <input type="text" id="in-subject" class="w-full border rounded p-2 bg-yellow-50" value="국제 정세와 유가">
+            </div>
+            <div class="space-y-1">
+                <label class="text-sm font-bold text-gray-600">학년</label>
+                <input type="text" id="in-grade" class="w-full border rounded p-2 bg-yellow-50" value="2">
+            </div>
+            <div class="space-y-1">
+                <label class="text-sm font-bold text-gray-600">평가 월</label>
+                <input type="text" id="in-m" class="w-full border rounded p-2 bg-yellow-50" value="4">
+            </div>
+            <div class="space-y-1">
+                <label class="text-sm font-bold text-gray-600">평가 일</label>
+                <input type="text" id="in-d" class="w-full border rounded p-2 bg-yellow-50" value="22">
+            </div>
+            <div class="space-y-1">
+                <label class="text-sm font-bold text-gray-600">평가 교시</label>
+                <input type="text" id="in-period" class="w-full border rounded p-2 bg-yellow-50" value="2">
+            </div>
+        </div>
+
+        <!-- 출제 교사는 데이터 파일로 제공받지 못하므로 입력 방식과 무관하게 항상 직접 입력 -->
+        <div class="space-y-1 mb-8">
+            <label class="text-sm font-bold text-gray-600">출제 교사 (직접 입력)</label>
+            <input type="text" id="in-teachers" class="w-full border rounded p-2 bg-yellow-50" value="홍길동, 길동홍">
+        </div>
+
+        <details class="bg-amber-50 p-5 rounded-lg border border-amber-300 mb-6">
+            <summary class="font-bold text-amber-800 flex items-center gap-2 cursor-pointer select-none">
+                🖨️ 프린터 페이지별 여백 보정
+            </summary>
+            <p class="text-xs text-amber-700 mb-3 mt-3 leading-relaxed">
+                일부 프린터/복합기는 첫 장만 급지 방식이 달라 상단 여백이 뒷장과 다르게 인쇄됩니다.<br>
+                자로 측정한 뒤, <b>기준으로 삼고 싶은 페이지 쪽은 0으로 두고</b> 다른 쪽만 값을 넣어 맞추세요.<br>
+                예) 1페이지가 8mm, 2페이지부터 4mm인데 <b>8mm를 기준</b>으로 맞추고 싶다면<br>
+                → "1페이지 보정값"은 0, <b>"2페이지 이후 보정값"에 +4</b> 입력 (2페이지부터 내용을 4mm 아래로 내려서 여백을 8mm로 맞춤)
+            </p>
+            <div class="flex items-center gap-2 mb-2">
+                <label class="text-sm font-bold text-gray-700 w-32">1페이지 보정값</label>
+                <input type="number" id="in-page1-offset" step="0.5" class="w-24 border rounded p-2 bg-white" value="0">
+                <span class="text-sm text-gray-600">mm</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <label class="text-sm font-bold text-gray-700 w-32">2페이지 이후 보정값</label>
+                <input type="number" id="in-restpages-offset" step="0.5" class="w-24 border rounded p-2 bg-white" value="4">
+                <span class="text-sm text-gray-600">mm</span>
+            </div>
+        </details>
+        <div class="bg-gray-50 p-5 rounded-lg border mb-6">
+            <h3 class="font-bold text-blue-700 mb-4 flex items-center gap-2">
+                📍 세부 정보 (평가 교실 및 인원)
+            </h3>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2" id="room-inputs">
+                <!-- 입력 행 생성 -->
+            </div>
+        </div>
+
+        <div class="flex justify-center">
+            <button onclick="window.print()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-12 rounded-xl shadow-lg transition-all active:scale-95 flex items-center gap-3 text-lg">
+                🖨️ 인쇄하기
+            </button>
+        </div>
+    </div>
+
+    <!-- 출력 영역 -->
+    <div class="print-area" id="print-output"></div>
+
+    <script>
+    /* ==================== 응시현황표(.xlsx) 읽기 (PARSER-START) ==================== */
+    // 한셀/엑셀 어느 쪽에서 저장한 xlsx든 읽을 수 있도록, 압축만 풀고(fflate) XML은 직접 해석한다.
+    // 응시현황표 형식(시트 1개 = 1개 반):
+    //   제목: "2026학년도 2학기 2차 정기시험 과목별 응시 현황표(3-1)"
+    //   "시험일" 행: 11월 23일 (월) ... (같은 날 여러 과목이면 셀 병합 → 빈칸은 왼쪽 값을 이어받음)
+    //   교시 행 → "학번" 행(학번, 이름, 과목1, 과목2 ...) → 학생 행(O/X)
+    //   과목별 'O' 개수 = 그 반의 응시 인원
+    const STATUS_OK_MARKS = ['O', 'o', '○', '◯', 'Ｏ', '0', 'V', 'v', '✓', '✔'];
+
+    function xmlUnescape(s) {
+        return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+                .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n)).replace(/&amp;/g, '&');
+    }
+    function xmlTexts(fragment) {   // <t>...</t> (접두어 x: 등 무시) 모두 이어붙이기
+        let out = '';
+        const re = /<(?:\w+:)?t(?:\s[^>]*)?>([\s\S]*?)<\/(?:\w+:)?t>/g;
+        let m;
+        while ((m = re.exec(fragment))) out += m[1];
+        return xmlUnescape(out);
+    }
+    function colIndex(ref) {         // "C5" → 2
+        const letters = ref.match(/^[A-Z]+/)[0];
+        let n = 0;
+        for (const ch of letters) n = n * 26 + (ch.charCodeAt(0) - 64);
+        return n - 1;
+    }
+    function serialToMD(v) {         // 엑셀 날짜 일련번호 → "11월 23일"
+        const d = new Date(Math.round((v - 25569) * 86400000));
+        return `${d.getUTCMonth() + 1}월 ${d.getUTCDate()}일`;
+    }
+
+    // 압축을 푼 xlsx에서 { 시트이름: 2차원배열 } 을 만든다 (최대 maxRows행, 값 있는 칸만)
+    function readXlsxSheets(u8, maxRows = 120) {
+        const dec = new TextDecoder('utf-8');
+        const get = (path) => {
+            const files = fflate.unzipSync(u8, { filter: f => f.name === path });
+            return files[path] ? dec.decode(files[path]) : null;
+        };
+        const wbXml = get('xl/workbook.xml');
+        if (!wbXml) throw new Error('엑셀(xlsx) 파일이 아닙니다.');
+        const relsXml = get('xl/_rels/workbook.xml.rels') || '';
+        const rels = {};
+        relsXml.replace(/<(?:\w+:)?Relationship\b([^>]*)>/g, (_, attrs) => {
+            const id = (attrs.match(/\bId="([^"]+)"/) || [])[1];
+            const target = (attrs.match(/\bTarget="([^"]+)"/) || [])[1];
+            if (id && target) rels[id] = target.startsWith('/') ? target.slice(1) : 'xl/' + target;
+            return '';
+        });
+        const sheets = [];
+        wbXml.replace(/<(?:\w+:)?sheet\b([^>]*)\/?>/g, (_, attrs) => {
+            const name = (attrs.match(/\bname="([^"]+)"/) || [])[1];
+            const rid = (attrs.match(/\br:id="([^"]+)"/) || attrs.match(/\b\w+:id="([^"]+)"/) || [])[1];
+            if (name && rels[rid]) sheets.push({ name: xmlUnescape(name), path: rels[rid] });
+            return '';
+        });
+        const sstXml = get('xl/sharedStrings.xml') || '';
+        const sst = [];
+        const siRe = /<(?:\w+:)?si>([\s\S]*?)<\/(?:\w+:)?si>/g;
+        let m;
+        while ((m = siRe.exec(sstXml))) sst.push(xmlTexts(m[1]));
+
+        const result = {};
+        for (const sh of sheets) {
+            const xml = get(sh.path);
+            if (!xml) continue;
+            // 한 번만 앞으로 훑는 방식(정규식 역추적 없음). 값이 있는 칸만 모은다.
+            // 칸 태그: <c r="C5" t="s"><v>71</v></c>  /  빈 칸: <c r="I5" s="30"/>
+            const rows = [];
+            const tagRe = /<(\/?)(?:\w+:)?(row|c)\b([^>]*?)(\/?)>/g;
+            let tm, curRow = null, curRowNum = 0;
+            while ((tm = tagRe.exec(xml))) {
+                const [, closing, tag, attrs, selfClose] = tm;
+                if (tag === 'row') {
+                    if (closing) { curRow = null; continue; }
+                    curRowNum = +((attrs.match(/\br="(\d+)"/) || [])[1] || curRowNum + 1);
+                    if (curRowNum > maxRows) break;
+                    if (selfClose) continue;
+                    curRow = rows[curRowNum - 1] = [];
+                    continue;
+                }
+                // tag === 'c'
+                if (closing || selfClose || !curRow) continue;
+                const endIdx = xml.indexOf('c>', tagRe.lastIndex);   // </c> 또는 </x:c> 의 끝부분
+                if (endIdx < 0) break;
+                const inner = xml.slice(tagRe.lastIndex, endIdx);
+                tagRe.lastIndex = endIdx + 2;
+                const ref = (attrs.match(/\br="([A-Z]+)\d+"/) || [])[1];
+                if (!ref) continue;
+                const t = (attrs.match(/\bt="(\w+)"/) || [])[1];
+                const vm = inner.match(/<(?:\w+:)?v>([\s\S]*?)<\/(?:\w+:)?v>/);
+                let val = null;
+                if (t === 's' && vm) val = sst[+vm[1]];
+                else if (t === 'inlineStr') val = xmlTexts(inner);
+                else if (vm) val = (t === 'n' || !t) ? Number(vm[1]) : xmlUnescape(vm[1]);
+                if (val !== null && val !== undefined && val !== '') curRow[colIndex(ref)] = val;
+            }
+            result[sh.name] = rows;
+        }
+        return result;
+    }
+
+    function statusCell(v) { return v === null || v === undefined ? '' : String(v).trim(); }
+
+    // { 시트이름: 행배열 } → 반별 기록 [{grade, cls, subject, m, d, dow, period, count, year, semester, turn}]
+    function parseStatusSheets(sheetMap) {
+        const exams = [], warnings = [];
+        Object.entries(sheetMap).forEach(([sheetName, rawRows]) => {
+            const rows = Array.from(rawRows, r => r || []);
+            let year = '', semester = '', turn = '', grade = '', cls = '';
+            for (const r of rows.slice(0, 8)) {
+                const t = Array.from(r, statusCell).join(' ');
+                const m1 = t.match(/(\d{4})\s*학년도\s*(\d)\s*학기\s*(\d)\s*차/);
+                if (m1 && !year) { year = m1[1]; semester = m1[2]; turn = m1[3]; }
+                const m2 = t.match(/\(\s*(\d)\s*-\s*(\d{1,2})\s*\)/);
+                if (m2 && !grade) { grade = m2[1]; cls = String(+m2[2]); }
+            }
+            const sm = sheetName.match(/^\s*(\d)\s*-\s*(\d{1,2})\s*$/);
+            if (sm) { grade = sm[1]; cls = String(+sm[2]); }
+
+            const headIdx = rows.findIndex(r => Array.from(r, statusCell).includes('학번'));
+            if (headIdx < 0 || !grade) return;   // 반별 현황 시트가 아니면 조용히 건너뜀 (예: 과목선택, 함수식 시트)
+            const head = Array.from(rows[headIdx], statusCell);
+            const idCol = head.indexOf('학번');
+            let dateRow = [], periodRow = [];
+            for (let i = headIdx - 1; i >= Math.max(0, headIdx - 4); i--) {
+                const r = Array.from(rows[i], statusCell);
+                if (!periodRow.length && r.some(v => /\d\s*교시/.test(v))) periodRow = rows[i];
+                if (!dateRow.length && r.some(v => v.replace(/\s/g, '') === '시험일' || /\d+\s*월\s*\d+\s*일/.test(v))) dateRow = rows[i];
+            }
+            // 학생 행을 "응시 교실" 구역별로 나눈다.
+            //   "이동 교실(2-1반) 학생 / 14명"  → 아래 학생들은 2학년 1반 교실에서 응시
+            //   "자기 교실(3-1반) 학생 / 19명"  → 아래 학생들은 3학년 1반 교실에서 응시
+            //   구역 표시가 없으면 반 전체가 자기 반 교실에서 응시(통반)
+            const groups = [];
+            let cur = null;
+            for (let i = headIdx + 1; i < rows.length; i++) {
+                const r = rows[i];
+                const line = Array.from(r, statusCell).join(' ');
+                const sec = line.match(/(이동|자기)\s*교실\s*\(\s*(\d)\s*-\s*(\d{1,2})\s*반?\s*\)/);
+                if (sec) {
+                    cur = { kind: sec[1] === '이동' ? 'move' : 'self', roomGrade: sec[2], roomCls: String(+sec[3]), students: [] };
+                    groups.push(cur);
+                    continue;
+                }
+                if (/^\d{4,6}$/.test(statusCell(r[idCol]))) {
+                    if (!cur) { cur = { kind: 'whole', roomGrade: grade, roomCls: cls, students: [] }; groups.push(cur); }
+                    cur.students.push(r);
+                }
+            }
+
+            let lastDate = '', lastPeriod = '';
+            for (let c = 0; c < head.length; c++) {
+                let dRaw = dateRow[c];
+                if (typeof dRaw === 'number' && dRaw > 30000) dRaw = serialToMD(dRaw);
+                dRaw = statusCell(dRaw);
+                if (dRaw && /월/.test(dRaw)) lastDate = dRaw;
+                const pRaw = statusCell(periodRow[c]);
+                if (/교시/.test(pRaw)) lastPeriod = pRaw;
+                const subject = head[c];
+                if (!subject || c <= idCol || ['이름', '성명', '비고', '번호'].includes(subject)) continue;
+                const dm = lastDate.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일\s*(?:\(\s*([월화수목금토일])\s*\))?/);
+                const pm = lastPeriod.match(/(\d)\s*교시/);
+                groups.forEach((g, gi) => {
+                    const count = g.students.filter(r => STATUS_OK_MARKS.includes(statusCell(r[c]))).length;
+                    exams.push({ grade, cls, subject, kind: g.kind, roomGrade: g.roomGrade, roomCls: g.roomCls, order: gi,
+                        m: dm ? dm[1] : '', d: dm ? dm[2] : '', dow: dm && dm[3] ? dm[3] : '',
+                        period: pm ? pm[1] : '', count, year, semester, turn });
+                });
+                if (!dm || !pm) warnings.push(`'${sheetName}' 시트 '${subject}' 과목의 시험일/교시를 찾지 못했습니다.`);
+            }
+        });
+        return { exams, warnings };
+    }
+
+    // 교실(구역)별 기록을 "학년+과목+일시" 단위 시험으로 묶기
+    function groupStatusExams(records) {
+        const map = new Map();
+        records.forEach(r => {
+            const key = [r.grade, r.subject, r.m, r.d, r.period].join('|');
+            if (!map.has(key)) map.set(key, { key, grade: r.grade, subject: r.subject, m: r.m, d: r.d, dow: r.dow,
+                period: r.period, year: r.year, semester: r.semester, turn: r.turn, rooms: [] });
+            map.get(key).rooms.push(r);
+        });
+        const list = [...map.values()];
+        // 반 순서 → 시트에 적힌 구역 순서(이동 교실, 자기 교실)
+        list.forEach(e => e.rooms.sort((a, b) => (+a.cls - +b.cls) || (a.order - b.order)));
+        return list.sort((a, b) =>
+            (+a.m - +b.m) || (+a.d - +b.d) || (+a.period - +b.period) || (+a.grade - +b.grade) || a.subject.localeCompare(b.subject, 'ko'));
+    }
+
+    // 표지 '평가 교실' 칸에 들어갈 교실 이름
+    function statusRoomName(r) {
+        return `${r.roomGrade}학년 ${r.roomCls}반`;   // 이동 교실도 교실 이름만 (예: 2학년 1반)
+    }
+    /* ==================== PARSER-END ==================== */
+
+        // --- 입력 방식 전환 (직접 입력 / 응시현황표) ---
+        function setInputMode(mode) {
+            const activeCls = ['border-blue-600', 'text-blue-600'];
+            const inactiveCls = ['border-transparent', 'text-gray-400'];
+            const tabs = { direct: 'mode-direct-btn', status: 'mode-status-btn' };
+            Object.entries(tabs).forEach(([m, id]) => {
+                const btn = document.getElementById(id);
+                btn.classList.add(...(m === mode ? activeCls : inactiveCls));
+                btn.classList.remove(...(m === mode ? inactiveCls : activeCls));
+            });
+            // Tailwind의 'hidden' 클래스는 같은 요소의 'grid' 클래스와 우선순위가 겹쳐
+            // 먹히지 않을 수 있으므로, 인라인 style.display로 명확하게 제어한다.
+            document.getElementById('direct-input-grid').style.display = mode === 'direct' ? 'grid' : 'none';
+            document.getElementById('status-panel').style.display = mode === 'status' ? 'block' : 'none';
+        }
+
+        document.getElementById('mode-direct-btn').addEventListener('click', () => setInputMode('direct'));
+        document.getElementById('mode-status-btn').addEventListener('click', () => setInputMode('status'));
+        setInputMode('direct'); // 초기 상태를 인라인 스타일로 명확히 고정
+
+        // --- PWA Service Worker 및 설치 로직 ---
+        let deferredPrompt;
+        const installBtn = document.getElementById('pwa-install-btn');
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            installBtn.style.display = 'flex';
+        });
+
+        installBtn.addEventListener('click', async () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                if (outcome === 'accepted') {
+                    installBtn.style.display = 'none';
+                }
+                deferredPrompt = null;
+            }
+        });
+
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                const swCode = `
+                    const CACHE_NAME = 'paper-bag-v2';
+                    self.addEventListener('install', (e) => {
+                        self.skipWaiting();
+                    });
+                    self.addEventListener('fetch', (e) => {
+                        e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+                    });
+                `;
+                const blob = new Blob([swCode], { type: 'application/javascript' });
+                const swUrl = URL.createObjectURL(blob);
+                navigator.serviceWorker.register(swUrl)
+                    .then(reg => console.log('SW Registered'))
+                    .catch(err => console.log('SW Failed', err));
+            });
+        }
+
+        // --- 기존 로직 ---
+        const roomInputsContainer = document.getElementById('room-inputs');
+        // 교실 입력칸 한 줄 추가 (기본 16칸, 응시현황표 반이 더 많으면 자동으로 늘어남)
+        function addRoomRow() {
+            const i = roomInputsContainer.children.length + 1;
+            const row = document.createElement('div');
+            row.className = 'grid grid-cols-12 gap-2 mb-1 items-center input-row p-1 rounded';
+            row.innerHTML = `
+                <span class="col-span-1 text-xs font-bold text-gray-400 text-center">${i}</span>
+                <input type="text" class="col-span-7 border rounded p-1 text-sm room-name" placeholder="O학년 O반">
+                <input type="text" class="col-span-4 border rounded p-1 text-sm room-count" placeholder="인원">
+            `;
+            roomInputsContainer.appendChild(row);
+        }
+        for (let i = 1; i <= 16; i++) addRoomRow();
+
+        // 라벨 하나(한 칸)의 HTML을 만드는 함수로 분리
+        function buildHalfHtml(baseData, combinedSubject, roomName, roomCount) {
+            return `
+                <div class="page-half">
+                    <div class="content-box">
+                        <div class="header-title">
+                            ${baseData.year}학년도 ${baseData.semester}학기 ${baseData.turn}차 ${baseData.type}
+                        </div>
+                        <table>
+                            <tr>
+                                <th>과목명</th>
+                                <td>${combinedSubject}</td>
+                            </tr>
+                            <tr>
+                                <th>평가 교실</th>
+                                <td style="font-weight: bold;">${roomName} (${roomCount}명)</td>
+                            </tr>
+                            <tr>
+                                <th>평가 일시</th>
+                                <td>${baseData.year}년 ${baseData.m}월 ${baseData.d}일 ${baseData.period}교시</td>
+                            </tr>
+                            <tr>
+                                <th>출제 교사</th>
+                                <td>${baseData.teachers}</td>
+                            </tr>
+                            <tr class="notice-row">
+                                <th>감독교사<br>유의사항</th>
+                                <td>
+                                    <div class="notice-content">
+                                        <ul>
+                                            <li>문제지 봉투 수령 시 봉인 상태를 확인하십시오.</li>
+                                            <li>문제지 봉투는 반드시 학생들 앞에서 개봉하십시오.</li>
+                                            <li>학생 답안 회수 시 반드시 결시자 카드(감독교사 작성)를 포함하여 답안 매수가 응시 학생 인원수와 맞는지 확인하십시오.</li>
+                                            <li>평가 종료 후 여분 문제지와 답안지, 폐답안지도 회수하시어 학생 답안과 함께 평가관리실에 제출해 주십시오.</li>
+                                        </ul>
+                                    </div>
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        function updateLabels() {
+            const printOutput = document.getElementById('print-output');
+            printOutput.innerHTML = '';
+
+            const baseData = {
+                year: document.getElementById('in-year').value,
+                semester: document.getElementById('in-semester').value,
+                turn: document.getElementById('in-turn').value,
+                type: document.getElementById('in-type').value,
+                subject: document.getElementById('in-subject').value,
+                grade: document.getElementById('in-grade').value,
+                m: document.getElementById('in-m').value,
+                d: document.getElementById('in-d').value,
+                period: document.getElementById('in-period').value,
+                teachers: document.getElementById('in-teachers').value
+            };
+
+            const combinedSubject = `${baseData.grade}학년 '${baseData.subject}' 과목`;
+
+            const roomNames = document.querySelectorAll('.room-name');
+            const roomCounts = document.querySelectorAll('.room-count');
+
+            // 1) 입력된 교실 정보만 모은다
+            const rooms = [];
+            for (let i = 0; i < roomNames.length; i++) {
+                const roomName = roomNames[i].value.trim();
+                const roomCount = roomCounts[i].value.trim();
+                if (roomName || roomCount) {
+                    rooms.push({ name: roomName, count: roomCount });
+                }
+            }
+
+            if (rooms.length === 0) {
+                printOutput.innerHTML = '<div class="p-20 text-center text-gray-300 border-4 border-dashed rounded-xl">세부 정보에 교실 정보를 입력하면 여기에 라벨이 나타납니다.</div>';
+                return;
+            }
+
+            // 2) [핵심] 두 개씩 짝지어 .print-page(=A4 한 장) 컨테이너로 감싼다.
+            //    각 페이지는 서로 독립적이라 이전 페이지의 누적 높이와 무관하게
+            //    매번 "자기 자신의 정확히 절반" 위치에 절취선이 생긴다.
+            for (let i = 0; i < rooms.length; i += 2) {
+                const pair = rooms.slice(i, i + 2);
+                const halvesHtml = pair
+                    .map(r => buildHalfHtml(baseData, combinedSubject, r.name, r.count))
+                    .join('');
+                printOutput.insertAdjacentHTML(
+                    'beforeend',
+                    `<div class="print-page">${halvesHtml}</div>`
+                );
+            }
+        }
+
+        // 페이지별 보정값을 CSS 변수로 반영 (레이아웃엔 영향 없이 시각적 이동만 적용)
+        function applyPageOffsets() {
+            const p1Val = document.getElementById('in-page1-offset').value.trim();
+            const restVal = document.getElementById('in-restpages-offset').value.trim();
+            const p1mm = p1Val === '' ? 0 : parseFloat(p1Val);
+            const restMm = restVal === '' ? 0 : parseFloat(restVal);
+            document.documentElement.style.setProperty('--page1-offset', `${isNaN(p1mm) ? 0 : p1mm}mm`);
+            document.documentElement.style.setProperty('--restpages-offset', `${isNaN(restMm) ? 0 : restMm}mm`);
+        }
+
+        document.addEventListener('input', (e) => {
+            if (e.target.id === 'in-page1-offset' || e.target.id === 'in-restpages-offset') {
+                applyPageOffsets();
+                return;
+            }
+            if (e.target.id === 'status-filter' || e.target.id === 'status-file' || e.target.id === 'status-skip-zero') return;
+            if (e.target.tagName === 'INPUT') updateLabels();
+        });
+
+
+        // --- 📊 응시현황표 가져오기: 화면 연결 ---
+        let statusRecords = [];      // 반별 기록 (학생 이름 없음)
+        let statusExams = [];
+        let statusSelectedKey = null;
+        const STATUS_STORE_KEY = 'bongtu-status-v2';   // v2: 이동/자기 교실(분반) 구분
+
+        function statusEsc(s) {
+            return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+        function statusMsg(html, color) {
+            document.getElementById('status-msg').innerHTML = `<div class="${color || 'text-green-700'}">${html}</div>`;
+        }
+        function statusSave() {
+            try { localStorage.setItem(STATUS_STORE_KEY, JSON.stringify(statusRecords)); } catch (e) {}
+        }
+
+        async function handleStatusFiles(fileList) {
+            const files = [...fileList];
+            if (!files.length) return;
+            if (typeof fflate === 'undefined') {
+                statusMsg('⚠️ 엑셀 읽기 도구를 불러오지 못했습니다. 인터넷 연결을 확인하고 새로고침해 주세요.', 'text-red-600');
+                return;
+            }
+            statusMsg('⏳ 파일을 읽는 중입니다... (한셀 파일은 몇 초 걸릴 수 있습니다)', 'text-gray-600');
+            await new Promise(r => setTimeout(r, 30));   // 안내 문구가 먼저 보이도록
+            const fresh = [], warns = [];
+            for (const f of files) {
+                try {
+                    const u8 = new Uint8Array(await f.arrayBuffer());
+                    const { exams, warnings } = parseStatusSheets(readXlsxSheets(u8));
+                    fresh.push(...exams);
+                    warnings.forEach(w => warns.push(`[${f.name}] ${w}`));
+                    if (!exams.length) warns.push(`[${f.name}] 응시현황 시트(예: 3-1)를 찾지 못했습니다.`);
+                } catch (err) {
+                    warns.push(`[${f.name}] 읽지 못했습니다: ${err.message}`);
+                }
+            }
+            // 같은 학년·반은 새 파일 값으로 교체, 다른 학년은 계속 쌓기
+            const replaced = new Set(fresh.map(r => r.grade + '-' + r.cls));
+            statusRecords = statusRecords.filter(r => !replaced.has(r.grade + '-' + r.cls)).concat(fresh);
+            statusSave();
+            renderStatusList();
+            const grades = [...new Set(statusRecords.map(r => r.grade))].sort().map(g => g + '학년').join(', ');
+            const nCls = new Set(statusRecords.map(r => r.grade + '-' + r.cls)).size;
+            let html = fresh.length
+                ? `✅ ${grades} ${nCls}개 반, 시험 ${statusExams.length}과목을 불러왔습니다. 아래에서 과목을 클릭하세요.`
+                : '⚠️ 불러온 정보가 없습니다.';
+            if (warns.length) html += `<div class="text-amber-700 text-xs mt-1">${warns.map(statusEsc).join('<br>')}</div>`;
+            statusMsg(html, fresh.length ? 'text-green-700' : 'text-red-600');
+        }
+
+        function renderStatusList() {
+            statusExams = groupStatusExams(statusRecords);
+            const wrap = document.getElementById('status-list-wrap');
+            wrap.style.display = statusExams.length ? 'block' : 'none';
+            const q = document.getElementById('status-filter').value.replace(/\s/g, '');
+            const shown = statusExams.filter(e => !q || e.subject.replace(/\s/g, '').includes(q));
+            const byDate = new Map();
+            shown.forEach(e => {
+                const k = `${e.m}월 ${e.d}일${e.dow ? ' (' + e.dow + ')' : ''}`;
+                if (!byDate.has(k)) byDate.set(k, []);
+                byDate.get(k).push(e);
+            });
+            let html = '';
+            byDate.forEach((items, label) => {
+                html += `<div><div class="text-sm font-bold text-gray-700 mb-1">📅 ${statusEsc(label)}</div><div class="grid grid-cols-2 md:grid-cols-4 gap-2">`;
+                items.forEach(e => {
+                    const counts = e.rooms.map(r => r.count);
+                    const total = counts.reduce((a, b) => a + b, 0);
+                    const sel = e.key === statusSelectedKey;
+                    html += `<button type="button" data-key="${statusEsc(e.key)}" class="status-exam text-left border rounded-lg p-2 ${sel ? 'bg-green-600 text-white border-green-600' : 'bg-white hover:border-green-500 hover:bg-green-50'}">
+                        <div class="font-bold text-sm">${statusEsc(e.subject)}</div>
+                        <div class="text-xs ${sel ? 'text-green-100' : 'text-gray-500'}">${e.grade}학년 · ${e.period}교시 · 교실 ${counts.filter(n => n > 0).length}곳 ${total}명</div>
+                    </button>`;
+                });
+                html += '</div></div>';
+            });
+            const list = document.getElementById('status-list');
+            list.innerHTML = html || '<div class="text-sm text-gray-400">일치하는 과목이 없습니다.</div>';
+            list.querySelectorAll('.status-exam').forEach(b => b.addEventListener('click', () => selectStatusExam(b.dataset.key)));
+        }
+
+        function selectStatusExam(key) {
+            const e = statusExams.find(x => x.key === key);
+            if (!e) return;
+            statusSelectedKey = key;
+            const set = (id, v) => { if (v !== '' && v !== undefined) document.getElementById(id).value = v; };
+            set('in-year', e.year); set('in-semester', e.semester); set('in-turn', e.turn);
+            set('in-subject', e.subject); set('in-grade', e.grade);
+            set('in-m', e.m); set('in-d', e.d); set('in-period', e.period);
+
+            // 세부 정보(평가 교실 및 인원) 채우기: 분반이면 이동 교실/자기 교실을 각각 한 칸씩
+            const skipZero = document.getElementById('status-skip-zero').checked;
+            const rooms = e.rooms.filter(r => !skipZero || r.count > 0);
+            while (document.querySelectorAll('.room-name').length < rooms.length) addRoomRow();
+            const names = document.querySelectorAll('.room-name');
+            const counts = document.querySelectorAll('.room-count');
+            names.forEach((el, i) => {
+                el.value = rooms[i] ? statusRoomName(rooms[i]) : '';
+                counts[i].value = rooms[i] ? String(rooms[i].count) : '';
+            });
+
+            const total = rooms.reduce((a, r) => a + r.count, 0);
+            const preview = document.getElementById('status-preview');
+            preview.style.display = 'block';
+            preview.innerHTML = `
+                <div class="font-bold text-green-700 mb-1">✅ ${statusEsc(e.subject)} — ${e.year}학년도 ${e.semester}학기 ${e.turn}차 · ${e.grade}학년 · ${e.m}월 ${e.d}일 ${e.period}교시</div>
+                <div>${rooms.map(r => `${statusEsc(statusRoomName(r))} ${r.count}명`).join(' / ')} <b>(총 ${total}명, 표지 ${rooms.length}장 → A4 ${Math.ceil(rooms.length / 2)}장)</b></div>
+                <div class="text-xs text-orange-600 mt-1 font-bold">출제 교사는 아래 칸에 직접 입력해주세요.</div>
+                <div class="text-xs text-gray-500">값을 고치고 싶으면 "✏️ 직접 입력" 탭이나 세부 정보 칸에서 수정할 수 있습니다.</div>`;
+            renderStatusList();
+            updateLabels();
+            document.getElementById('in-teachers').focus();
+        }
+
+        (function initStatusPanel() {
+            const input = document.getElementById('status-file');
+            const drop = document.getElementById('status-drop');
+            input.addEventListener('change', e => { handleStatusFiles(e.target.files); e.target.value = ''; });
+            ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('bg-green-100'); }));
+            ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('bg-green-100'); }));
+            drop.addEventListener('drop', e => handleStatusFiles(e.dataTransfer.files));
+            document.getElementById('status-filter').addEventListener('input', renderStatusList);
+            document.getElementById('status-skip-zero').addEventListener('change', () => { if (statusSelectedKey) selectStatusExam(statusSelectedKey); });
+            document.getElementById('status-clear').addEventListener('click', () => {
+                statusRecords = []; statusSelectedKey = null;
+                try { localStorage.removeItem(STATUS_STORE_KEY); } catch (e) {}
+                renderStatusList();
+                document.getElementById('status-preview').style.display = 'none';
+                statusMsg('불러온 자료를 지웠습니다.', 'text-gray-500');
+            });
+            // 지난번에 불러온 반별 인원 복원 (학생 이름은 저장하지 않음)
+            try {
+                const saved = JSON.parse(localStorage.getItem(STATUS_STORE_KEY) || 'null');
+                if (Array.isArray(saved) && saved.length) {
+                    statusRecords = saved;
+                    renderStatusList();
+                    statusMsg(`💾 지난번에 불러온 응시현황(${new Set(saved.map(r => r.grade + '-' + r.cls)).size}개 반)이 남아 있습니다. 새 파일을 올리면 같은 반은 새 값으로 바뀝니다.`);
+                }
+            } catch (e) {}
+        })();
+
+        applyPageOffsets();
+        window.onload = updateLabels;
+    </script>
+</body>
+</html>
